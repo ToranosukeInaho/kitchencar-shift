@@ -1,0 +1,25 @@
+name: Supabase Keep-Alive
+
+# 無料プランの自動一時停止（7日間アクセスなしで停止）を防ぐため、
+# 毎日1回Supabaseに軽いリクエストを送る
+
+on:
+  schedule:
+    - cron: '0 21 * * *'   # 毎日 21:00 UTC = 日本時間 朝6:00
+  workflow_dispatch:        # 手動実行も可能（動作確認用）
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase (koorogi)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://rfbpfuxqcwioyvvbiacp.supabase.co/rest/v1/staff?select=id&limit=1" \
+            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmYnBmdXhxY3dpb3l2dmJpYWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNDA0MTIsImV4cCI6MjA5NTYxNjQxMn0.QPdOXsdNsNS5NP-bp7rPzdY-neQUYp3vij9jRJO7R7U" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJmYnBmdXhxY3dpb3l2dmJpYWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNDA0MTIsImV4cCI6MjA5NTYxNjQxMn0.QPdOXsdNsNS5NP-bp7rPzdY-neQUYp3vij9jRJO7R7U")
+          echo "Supabase response: $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Keep-alive failed with status $STATUS"
+            exit 1
+          fi
