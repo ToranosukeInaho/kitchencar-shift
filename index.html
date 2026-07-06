@@ -325,6 +325,11 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 
 <!-- ADMIN -->
 <div id="adminView" class="app">
+<div id="pushBanner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:900;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.15);align-items:center;gap:12px;max-width:340px;">
+  <div style="font-size:13px;line-height:1.5;">新しい応募が来たら<br>通知を受け取りますか？</div>
+  <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="enablePushFromBanner()">有効にする</button>
+  <span onclick="document.getElementById('pushBanner').style.display='none'" style="cursor:pointer;color:var(--text-3);font-size:18px;line-height:1;">×</span>
+</div>
   <div class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">Kitchen Car</div>
@@ -2345,6 +2350,34 @@ async function subscribePush() {
   }
 }
 
+// 通知の状態に応じて: 許可済み→静かに購読更新 / 未設定→バナー表示（iOSはタップ必須のため）
+function maybePromptPush() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.log('Push not supported on this browser');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    subscribePush();
+    return;
+  }
+  if (Notification.permission === 'default') {
+    const banner = document.getElementById('pushBanner');
+    if (banner) banner.style.display = 'flex';
+  }
+  // denied の場合は何もしない（ブラウザ設定から解除が必要）
+}
+
+async function enablePushFromBanner() {
+  const banner = document.getElementById('pushBanner');
+  if (banner) banner.style.display = 'none';
+  await subscribePush();
+  if (Notification.permission === 'granted') {
+    showNotif('通知を有効にしました');
+  } else if (Notification.permission === 'denied') {
+    showNotif('通知がブロックされています。ブラウザの設定から許可してください。');
+  }
+}
+
 async function dbGetCars() {
   return await supaFetch('cars?order=order_index');
 }
@@ -2571,8 +2604,8 @@ async function applyLogin() {
     document.querySelector('.user-role').textContent =
       currentUser.role === 'master' ? 'マスター権限' :
       currentUser.role === 'owner' ? 'オーナー権限' : '社員権限';
-    // 管理者ログイン: 通知許可を求めて購読を保存
-    subscribePush();
+    // 管理者ログイン: 通知の購読更新 or 有効化バナー表示
+    maybePromptPush();
   } else {
     document.getElementById('adminView').classList.add('hidden');
     document.getElementById('baitoView').classList.remove('hidden');
