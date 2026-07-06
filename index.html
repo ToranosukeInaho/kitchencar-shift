@@ -719,7 +719,8 @@ input::-webkit-date-and-time-value{text-align:left;}
       <div class="fg"><label class="fl">フリガナ</label><input class="fi" id="sFurigana" placeholder="例：イナホ トラノスケ"></div>
       <div class="fg"><label class="fl">最寄り駅</label><input class="fi" id="sStation" placeholder="例：志木駅"></div>
       <div class="fg"><label class="fl">権限</label>
-        <select class="fi" id="sRole"><option value="baito">バイト</option><option value="staff">社員</option><option value="owner">オーナー</option><option value="master">マスター</option></select>
+        <select class="fi" id="sRole" disabled style="opacity:0.6;cursor:not-allowed;"><option value="baito">バイト</option><option value="staff">社員</option><option value="owner">オーナー</option><option value="master">マスター</option></select>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px;">※セキュリティのため権限の変更はSupabase管理画面から行います（新規追加はバイトで登録されます）</div>
       </div>
       <div class="fg"><label class="fl">レギュラー</label>
         <select class="fi" id="sReg"><option value="false">なし</option><option value="true">★ レギュラー</option></select>
@@ -1252,14 +1253,16 @@ async function saveStaff(){
   const station = document.getElementById('sStation').value.trim();
   if(id){
     const s=staffList.find(x=>String(x.id)===id);
-    if(s){s.name=name;s.role=role;s.regular=regular;s.furigana=furigana;s.nearest_station=station;}
-    await dbUpdateStaff(id,{name,role,is_regular:regular,furigana,nearest_station:station});
+    if(s){s.name=name;s.regular=regular;s.furigana=furigana;s.nearest_station=station;}
+    // roleは送らない（DB側でrole列の更新を禁止。変更はSupabase管理画面から）
+    await dbUpdateStaff(id,{name,is_regular:regular,furigana,nearest_station:station});
     showNotif('スタッフ情報を更新しました');
   } else {
-    const res=await dbInsertStaff({name,role,is_regular:regular,furigana,nearest_station:station,shifts_count:0,docancel_count:0});
+    // roleは送らない（DBのデフォルトでbaitoが入る）
+    const res=await dbInsertStaff({name,is_regular:regular,furigana,nearest_station:station,shifts_count:0,docancel_count:0});
     if(res&&res[0]){
       const d=TODAY;
-      staffList.push({id:res[0].id,name,role,regular,furigana,nearest_station:station,shifts:0,docancels:0,joined:`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`});
+      staffList.push({id:res[0].id,name,role:'baito',regular,furigana,nearest_station:station,shifts:0,docancels:0,joined:`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`});
     }
     showNotif(`${name}さんを追加しました`);
   }
@@ -2754,10 +2757,10 @@ async function handleCallback() {
     // スタッフ一覧に存在しなければ自動追加
     const existing = await supaFetch('staff?line_id=eq.' + currentUser.lineId);
     if (!existing || existing.length === 0) {
+      // roleは送らない（DBのデフォルトでbaitoが入る）
       const newStaff = await dbInsertStaff({
         line_id: currentUser.lineId,
         name: currentUser.name,
-        role: 'baito',
         is_regular: false,
         shifts_count: 0,
         docancel_count: 0
