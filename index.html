@@ -775,7 +775,8 @@ function isPast(ds){return new Date(ds+'T23:59:59') < TODAY;}
 
 // ===== METRICS =====
 function refreshMetrics(){
-  const total=venues.length, open=venues.filter(isOpen).length;
+  const todayS0 = todayStr();
+  const total=venues.length, open=venues.filter(v=>isOpen(v)&&v.date>=todayS0).length;
   const app=applicants.filter(a=>a.status==='pending').length;
   const sc=staffList.length, rc=staffList.filter(s=>s.regular).length;
   const set=(id,val)=>{const el=document.getElementById(id); if(el) el.textContent=val;};
@@ -1462,6 +1463,17 @@ async function submitApply(){
       });
       renderApplicants();
       renderBaito();
+      // 管理者へプッシュ通知
+      const applicantName = currentUser.displayName || currentUser.name;
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '新しい応募',
+          body: applicantName + 'さんが' + v.name + 'に応募',
+          url: window.location.origin
+        })
+      }).catch(function(e){ console.error('send-push failed:', e); });
     }
   }
   showNotif('シフトを提出しました！確定後に通知が届きます。');
@@ -1788,12 +1800,43 @@ async function renderContact(){
     return hasApproved && dateOk;
   });
 
-  if(!activeVenues.length){
-    container.innerHTML = `<div class="empty" style="padding:40px;">${contactPast ? '過去の現場はありません' : '確定スタッフがいる現場がありません'}</div>`;
+  // 過去の場合は月別折りたたみ表示
+  if(contactPast){
+    // 月ごとにグループ化（新しい順）
+    const byMonth = {};
+    activeVenues.sort((a,b)=>b.date.localeCompare(a.date)).forEach(v=>{
+      const ym = v.date.slice(0,7); // "2026-06"
+      if(!byMonth[ym]) byMonth[ym]=[];
+      byMonth[ym].push(v);
+    });
+    container.innerHTML = Object.keys(byMonth).sort((a,b)=>b.localeCompare(a)).map(ym=>{
+      const [y,m] = ym.split('-');
+      const label = `${y}年${parseInt(m)}月`;
+      const venueCards = byMonth[ym].map(v=>{
+        const confirmed = applicants.filter(a=>a.venueId===v.id && a.status==='approved');
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">${v.name}</div>
+          <div style="font-size:11px;color:var(--text-2);">${fmtDate(v.date)}　${v.start}〜${v.end}　${carName(v.carIdx)}</div>
+          <div style="font-size:11px;color:var(--text-2);margin-top:2px;">確定スタッフ：${confirmed.map(a=>a.staffName).join('、')}</div>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+        <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.querySelector('.toggle').textContent=this.nextElementSibling.style.display==='none'?'▶':'▼';"
+          style="padding:12px 14px;background:var(--bg-2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:600;">${label}　<span style="font-weight:400;color:var(--text-2);">${byMonth[ym].length}件</span></span>
+          <span class="toggle" style="font-size:11px;color:var(--text-2);">▶</span>
+        </div>
+        <div style="display:none;padding:0 14px;">${venueCards}</div>
+      </div>`;
+    }).join('') || `<div class="empty" style="padding:40px;">過去の現場はありません</div>`;
     return;
   }
 
-  container.innerHTML = activeVenues.map(v=>{
+  if(!activeVenues.length){
+    container.innerHTML = `<div class="empty" style="padding:40px;">確定スタッフがいる現場がありません</div>`;
+    return;
+  }
+  container.innerHTML = activeVenues.sort((a,b)=>a.date.localeCompare(b.date)).map(v=>{
     const confirmed = applicants.filter(a=>a.venueId===v.id && a.status==='approved');
     const unnotified = confirmed.filter(a=>!a.arrival_notified).length;
     const unread = confirmed.filter(a=>a.baito_reply && !a.reply_checked).length;
@@ -2231,6 +2274,67 @@ async function supaFetch(path, options={}) {
   return text ? JSON.parse(text) : null;
 }
 
+// ===== WEB PUSH =====
+const VAPID_PUBLIC_KEY = 'BBOTOzwS4MpnRUyndrDRHd3MZmZP0zdxkoFYh0usk7g9v4Yn9lIHCN0AH0N8TaZb5T3wKy1WAy1M8ZhGy22o0pU';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    await navigator.serviceWorker.register('/sw.js');
+    console.log('Service Worker registered');
+  } catch (e) {
+    console.error('SW register failed:', e);
+  }
+}
+
+// 管理者ログイン後に呼ぶ: 通知許可 → 購読 → push_subscriptions に保存
+async function subscribePush() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      console.log('Push not supported on this browser');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.log('Notification permission:', permission);
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const json = sub.toJSON();
+    await supaFetch('push_subscriptions?on_conflict=endpoint', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=minimal',
+      body: JSON.stringify({
+        endpoint: sub.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+        staff_id: currentUser ? String(currentUser.dbId) : null
+      })
+    });
+    console.log('Push subscription saved');
+  } catch (e) {
+    console.error('subscribePush failed:', e);
+  }
+}
+
 async function dbGetCars() {
   return await supaFetch('cars?order=order_index');
 }
@@ -2491,6 +2595,8 @@ async function handleCallback() {
       document.querySelector('.user-role').textContent = 
         currentUser.role === 'master' ? 'マスター権限' :
         currentUser.role === 'owner' ? 'オーナー権限' : '社員権限';
+      // 管理者ログイン: 通知許可を求めて購読を保存
+      subscribePush();
     } else {
       document.getElementById('adminView').classList.add('hidden');
       document.getElementById('baitoView').classList.remove('hidden');
@@ -2551,6 +2657,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if(lineBtn) lineBtn.onclick = lineLogin;
   const stationBtn = document.querySelector('#stationScreen .btn-primary');
   if(stationBtn) stationBtn.onclick = saveStation;
+  registerServiceWorker();
 });
 
 // INIT
