@@ -349,6 +349,9 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
       <div style="margin-top:10px;">
         <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="switchView()">バイト画面を確認</button>
       </div>
+      <div style="margin-top:6px;">
+        <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;opacity:0.6;" onclick="logout()">ログアウト</button>
+      </div>
     </div>
   </div>
 
@@ -606,7 +609,10 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
   <div class="baito-app">
     <div class="baito-hd">
       <div class="baito-logo">KITCHEN CAR SHIFT</div>
-      <div class="baito-welcome" id="baitoWelcome">ゲストさん</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="baito-welcome" id="baitoWelcome">ゲストさん</div>
+        <span onclick="logout()" style="font-size:11px;color:var(--text-3);cursor:pointer;text-decoration:underline;">ログアウト</span>
+      </div>
     </div>
     <div class="baito-tabs">
       <div class="baito-tab active" onclick="baitoTab('open')">現場を探す</div>
@@ -2319,9 +2325,9 @@ async function subscribePush() {
       });
     }
     const json = sub.toJSON();
-    await supaFetch('push_subscriptions?on_conflict=endpoint', {
+    const saveResult = await supaFetch('push_subscriptions?on_conflict=endpoint', {
       method: 'POST',
-      prefer: 'resolution=merge-duplicates,return=minimal',
+      prefer: 'resolution=merge-duplicates,return=representation',
       body: JSON.stringify({
         endpoint: sub.endpoint,
         p256dh: json.keys.p256dh,
@@ -2329,7 +2335,11 @@ async function subscribePush() {
         staff_id: currentUser ? String(currentUser.dbId) : null
       })
     });
-    console.log('Push subscription saved');
+    if (saveResult) {
+      console.log('Push subscription saved');
+    } else {
+      console.error('Push subscription save FAILED (supaFetchのエラーログ参照)');
+    }
   } catch (e) {
     console.error('subscribePush failed:', e);
   }
@@ -2515,6 +2525,74 @@ const LINE_STATE = 'kitchencar_shift_' + Math.random().toString(36).slice(2);
 
 let currentUser = null;
 
+// ===== SESSION (ログイン保持) =====
+const SESSION_KEY = 'kcs_session';
+
+function saveSession(user) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      lineId: user.lineId,
+      dbId: user.dbId,
+      role: user.role,
+      displayName: user.displayName,
+      name: user.name
+    }));
+  } catch (e) { console.error('saveSession failed:', e); }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+
+function logout() {
+  clearSession();
+  currentUser = null;
+  window.location.href = '/';
+}
+
+// ログイン後の画面振り分け（LINE認証後・自動ログイン共通）
+async function applyLogin() {
+  const ls2 = document.getElementById('loginScreen');
+  if (ls2) ls2.style.display = 'none';
+
+  const adminRoles = ['master', 'owner', 'staff'];
+  if (adminRoles.includes(currentUser.role)) {
+    document.getElementById('adminView').classList.remove('hidden');
+    document.getElementById('baitoView').classList.add('hidden');
+    // サイドバーのユーザー名を更新
+    document.querySelector('.user-name').textContent = currentUser.displayName;
+    document.querySelector('.user-role').textContent =
+      currentUser.role === 'master' ? 'マスター権限' :
+      currentUser.role === 'owner' ? 'オーナー権限' : '社員権限';
+    // 管理者ログイン: 通知許可を求めて購読を保存
+    subscribePush();
+  } else {
+    document.getElementById('adminView').classList.add('hidden');
+    document.getElementById('baitoView').classList.remove('hidden');
+    // バイト画面のウェルカムメッセージを更新
+    document.querySelector('.baito-welcome').textContent = currentUser.displayName + 'さん';
+    // 最寄り駅チェック
+    const staffData = await supaFetch('staff?id=eq.' + currentUser.dbId);
+    if (staffData && staffData[0]) {
+      currentUser.nearest_station = staffData[0].nearest_station;
+      currentUser.furigana = staffData[0].furigana;
+      // 本名・フリガナ・最寄り駅のいずれかが未登録なら入力画面を表示
+      if (!staffData[0].nearest_station || !staffData[0].furigana) {
+        document.getElementById('stationScreen').style.display = 'flex';
+      }
+    }
+  }
+
+  loadFromDB();
+}
+
 function lineLogin() {
   const state = 'kcs_' + Math.random().toString(36).slice(2);
   sessionStorage.setItem('line_state', state);
@@ -2582,39 +2660,10 @@ async function handleCallback() {
     // URLからcodeを除去
     window.history.replaceState({}, document.title, '/');
 
-    const ls2 = document.getElementById('loginScreen');
-    if(ls2) ls2.style.display = 'none';
+    // ログイン状態を保存（次回から自動ログイン）
+    saveSession(currentUser);
 
-    // 権限に応じて画面を表示
-    const adminRoles = ['master', 'owner', 'staff'];
-    if (adminRoles.includes(currentUser.role)) {
-      document.getElementById('adminView').classList.remove('hidden');
-      document.getElementById('baitoView').classList.add('hidden');
-      // サイドバーのユーザー名を更新
-      document.querySelector('.user-name').textContent = currentUser.displayName;
-      document.querySelector('.user-role').textContent = 
-        currentUser.role === 'master' ? 'マスター権限' :
-        currentUser.role === 'owner' ? 'オーナー権限' : '社員権限';
-      // 管理者ログイン: 通知許可を求めて購読を保存
-      subscribePush();
-    } else {
-      document.getElementById('adminView').classList.add('hidden');
-      document.getElementById('baitoView').classList.remove('hidden');
-      // バイト画面のウェルカムメッセージを更新
-      document.querySelector('.baito-welcome').textContent = currentUser.displayName + 'さん';
-      // 最寄り駅チェック
-      const staffData = await supaFetch('staff?id=eq.' + currentUser.dbId);
-      if(staffData && staffData[0]){
-        currentUser.nearest_station = staffData[0].nearest_station;
-        currentUser.furigana = staffData[0].furigana;
-        // 本名・フリガナ・最寄り駅のいずれかが未登録なら入力画面を表示
-        if(!staffData[0].nearest_station || !staffData[0].furigana){
-          document.getElementById('stationScreen').style.display = 'flex';
-        }
-      }
-    }
-
-    loadFromDB();
+    await applyLogin();
     return true;
   } catch(e) {
     console.error(e);
@@ -2634,6 +2683,29 @@ async function initApp() {
     if(ls) ls.style.display = 'flex';
     await handleCallback();
     return;
+  }
+
+  // 保存済みセッションで自動ログイン
+  const saved = loadSession();
+  if (saved && saved.dbId) {
+    try {
+      // staffテーブルと照合して最新の権限・名前を取得
+      const rows = await supaFetch('staff?id=eq.' + saved.dbId);
+      if (rows && rows[0] && (!saved.lineId || !rows[0].line_id || rows[0].line_id === saved.lineId)) {
+        currentUser = saved;
+        currentUser.role = rows[0].role;
+        currentUser.displayName = rows[0].name;
+        saveSession(currentUser);
+        console.log('Auto-login:', currentUser.displayName, '(' + currentUser.role + ')');
+        await applyLogin();
+        return;
+      }
+      // DBに存在しない/LINE ID不一致 → セッション破棄
+      clearSession();
+    } catch (e) {
+      console.error('Auto-login failed:', e);
+      clearSession();
+    }
   }
 
   // セッションチェック（開発用ログイン済みか）
