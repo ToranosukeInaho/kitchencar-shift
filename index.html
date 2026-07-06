@@ -133,6 +133,8 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 .fg{margin-bottom:12px;}
 .fl{font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:4px;display:block;}
 .fi{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:'Noto Sans JP',sans-serif;background:var(--surface);color:var(--text);outline:none;}
+.fi[type="date"],.fi[type="time"]{min-height:38px;}
+input::-webkit-date-and-time-value{text-align:left;}
 .fi:focus{border-color:var(--text);}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 
@@ -329,12 +331,12 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 <body>
 
 <!-- ADMIN -->
-<div id="adminView" class="app">
 <div id="pushBanner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:900;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.15);align-items:center;gap:12px;max-width:340px;">
-  <div style="font-size:13px;line-height:1.5;">新しい応募が来たら<br>通知を受け取りますか？</div>
+  <div style="font-size:13px;line-height:1.5;">新着の通知を<br>受け取りますか？</div>
   <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="enablePushFromBanner()">有効にする</button>
   <span onclick="document.getElementById('pushBanner').style.display='none'" style="cursor:pointer;color:var(--text-3);font-size:18px;line-height:1;">×</span>
 </div>
+<div id="adminView" class="app">
   <div class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">Kitchen Car</div>
@@ -904,7 +906,9 @@ function openVenueModal(id){
     document.getElementById('vModalTitle').textContent='現場を追加';
     document.getElementById('vId').value='';
     document.getElementById('vName').value='';
-    document.getElementById('vDate').value='';
+    // 日付は今日(JST)を初期値に（iOSで空欄に見える問題対策）
+    const _t=new Date(Date.now()+9*3600*1000);
+    document.getElementById('vDate').value=`${_t.getUTCFullYear()}-${String(_t.getUTCMonth()+1).padStart(2,'0')}-${String(_t.getUTCDate()).padStart(2,'0')}`;
     document.getElementById('vStart').value='10:00';
     document.getElementById('vEnd').value='16:00';
     document.getElementById('vLoc').value='';
@@ -933,11 +937,25 @@ async function saveVenue(){
     const v=venues.find(x=>x.id===id);
     if(v){v.name=name;v.date=date;v.carIdx=carIdx;v.start=start;v.end=end;v.loc=loc;v.need=need;v.confirmed=confirmed;v.target=target;}
     await dbUpdateVenue(id,{name,date,car_id:carId,start_time:start,end_time:end,location:loc,need_count:need,confirmed_count:confirmed,target});
+    // 応募者（申請中＋確定）へ更新通知
+    const editIds = applicants
+      .filter(a => a.venueId===id && (a.status==='pending' || a.status==='approved'))
+      .map(a => String(a.staffId));
+    if(editIds.length > 0){
+      sendPush('現場情報の更新', `「${name}」が更新されました（${fmtDate(date)} ${start}〜${end}）`, editIds);
+    }
     showNotif(`「${name}」を更新しました`);
   } else {
     const res=await dbInsertVenue({name,date,car_id:carId,start_time:start,end_time:end,location:loc,need_count:need,confirmed_count:confirmed,target});
     if(res&&res[0]){
       venues.push({id:res[0].id,name,date,carIdx,start,end,loc,need,confirmed,target});
+      // バイトへプッシュ通知（レギュラー限定ならレギュラーのみ）
+      const targetIds = staffList
+        .filter(s => s.role === 'baito' && (target !== 'regular' || s.regular))
+        .map(s => String(s.id));
+      if(targetIds.length > 0){
+        sendPush('新しい現場の募集', `${name}（${fmtDate(date)} ${start}〜${end}）`, targetIds);
+      }
     }
     showNotif(`「${name}」を追加しました。通知を送りました。`);
   }
@@ -964,11 +982,18 @@ function deleteVenue(){
   }
   _confirmCallback = async () => {
     const relatedApps = applicants.filter(a=>a.venueId===id);
+    const cancelReason = document.getElementById('cancelReasonInput')?.value.trim() || '';
+    // 中止通知の宛先（申請中＋確定）を削除前に確保
+    const cancelNotifyIds = relatedApps
+      .filter(a => a.status==='pending' || a.status==='approved')
+      .map(a => String(a.staffId));
+    if(cancelNotifyIds.length > 0){
+      sendPush('現場中止のお知らせ', `「${v.name}」（${fmtDate(v.date)}）は中止になりました${cancelReason ? '。理由：' + cancelReason : ''}`, cancelNotifyIds);
+    }
     
     // Step1: キャンセル履歴を記録（確定スタッフ分）
     const approvedApps = relatedApps.filter(a=>a.status==='approved');
     for(const a of approvedApps){
-      const cancelReason = document.getElementById('cancelReasonInput')?.value.trim() || '';
       await supaFetch('cancelled_venues', {
         method:'POST',
         body: JSON.stringify({
@@ -1065,6 +1090,11 @@ async function approve(id){
   const appIdx = applicants.findIndex(x=>x.id===id);
   if(appIdx !== -1) applicants[appIdx].status = 'approved';
 
+  // 本人へシフト確定通知
+  if(v){
+    sendPush('シフト確定', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）のシフトが確定しました`, [String(a.staffId)]);
+  }
+
   // ダブルブッキング防止：同日の他の申請を自動キャンセル
   if(v){
     const sameDay = applicants.filter(x=>
@@ -1077,6 +1107,11 @@ async function approve(id){
       await dbUpdateApplicant(dup.id, {status:'cancelled_by_approval', cancelled_by:id});
       const dupIdx = applicants.findIndex(x=>x.id===dup.id);
       if(dupIdx !== -1) applicants[dupIdx].status = 'cancelled_by_approval';
+      // 自動キャンセルの通知（本人へ）
+      const dupVenue = venues.find(vv=>vv.id===dup.venueId);
+      if(dupVenue){
+        sendPush('応募の自動キャンセル', `同日のシフト確定により「${dupVenue.name}」の応募は取り下げられました`, [String(dup.staffId)]);
+      }
     }
     if(sameDay.length > 0){
       showNotif(`${a.staffName}さんを承認しました。同日の他の申請${sameDay.length}件を自動キャンセルしました。`);
@@ -1122,6 +1157,9 @@ async function reject(id){
   await dbUpdateApplicant(id,{status:'rejected'});
   const appIdx = applicants.findIndex(x=>x.id===id);
   if(appIdx !== -1) applicants[appIdx].status = 'rejected';
+  // 本人へ通知
+  const rv = venues.find(x=>x.id===a.venueId);
+  sendPush('応募結果', `「${rv ? rv.name : a.venueName}」の応募は今回見送りとなりました`, [String(a.staffId)]);
   renderApplicants();
   renderBaito();
   showNotif(`${a.staffName}さんを却下しました。バイトに通知を送りました。`);
@@ -1137,12 +1175,21 @@ function openIncModal(vid){
   openModal('incModal');
 }
 
-function doIncrease(){
+async function doIncrease(){
   const v=venues.find(x=>x.id===incTargetId); if(!v) return;
   v.need+=parseInt(document.getElementById('incAdd').value)||1;
+  // DBに保存（従来は保存されていなかったバグを修正）
+  await dbUpdateVenue(v.id,{need_count:v.need});
   closeModal('incModal');
   renderAll();
   document.getElementById('extraNotif').classList.remove('hidden');
+  // バイトへ追加募集通知（レギュラー限定ならレギュラーのみ）
+  const incIds = staffList
+    .filter(s => s.role==='baito' && (v.target !== 'regular' || s.regular))
+    .map(s => String(s.id));
+  if(incIds.length > 0){
+    sendPush('追加募集', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）で追加募集中です`, incIds);
+  }
   showNotif(`${v.name}の必要人数を${v.need}人に変更しました。全スタッフに通知しました。`);
 }
 
@@ -1481,15 +1528,7 @@ async function submitApply(){
       renderBaito();
       // 管理者へプッシュ通知
       const applicantName = currentUser.displayName || currentUser.name;
-      fetch('/api/send-push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: '新しい応募',
-          body: applicantName + 'さんが' + v.name + 'に応募',
-          url: window.location.origin
-        })
-      }).catch(function(e){ console.error('send-push failed:', e); });
+      sendPush('新しい応募', applicantName + 'さんが' + v.name + 'に応募', adminStaffIds());
     }
   }
   showNotif('シフトを提出しました！確定後に通知が届きます。');
@@ -2037,6 +2076,18 @@ async function sendChatMessage(){
     if(!messages[chatTargetAppId]) messages[chatTargetAppId] = [];
     messages[chatTargetAppId].push(res[0]);
     renderChatMessages();
+    // プッシュ通知（相手側へ）
+    const chatApp = applicants.find(x=>x.id===chatTargetAppId);
+    if(chatIsAdmin){
+      // 管理者→そのバイト1人だけ
+      if(chatApp && chatApp.staffId){
+        sendPush('管理者からメッセージ', truncMsg(content), [String(chatApp.staffId)]);
+      }
+    } else {
+      // バイト→管理者
+      const fromName = (currentUser && (currentUser.displayName || currentUser.name)) || 'スタッフ';
+      sendPush(fromName + 'さんからメッセージ', truncMsg(content), adminStaffIds());
+    }
     if(chatIsAdmin){
       // 管理者が返信→バイトからの未読を既読に
       await supaFetch('messages?applicant_id=eq.'+chatTargetAppId+'&sender=eq.baito&is_read=eq.false',{
@@ -2383,6 +2434,29 @@ async function enablePushFromBanner() {
   }
 }
 
+// プッシュ送信ヘルパー（staffIds省略時は全購読者へ）
+function sendPush(title, bodyText, staffIds) {
+  const payload = { title: title, body: bodyText, url: window.location.origin };
+  if (Array.isArray(staffIds)) payload.staff_ids = staffIds.map(String);
+  fetch('/api/send-push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(function (e) { console.error('send-push failed:', e); });
+}
+
+// 管理者(master/owner/staff)のstaff_id一覧
+function adminStaffIds() {
+  return staffList
+    .filter(function (s) { return ['master', 'owner', 'staff'].indexOf(s.role) !== -1; })
+    .map(function (s) { return String(s.id); });
+}
+
+// メッセージ本文の短縮（通知用）
+function truncMsg(t) {
+  return t.length > 60 ? t.slice(0, 60) + '…' : t;
+}
+
 async function dbGetCars() {
   return await supaFetch('cars?order=order_index');
 }
@@ -2626,6 +2700,8 @@ async function applyLogin() {
         document.getElementById('stationScreen').style.display = 'flex';
       }
     }
+    // バイトも通知の購読更新 or 有効化バナー表示
+    maybePromptPush();
   }
 
   loadFromDB();
