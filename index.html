@@ -133,7 +133,7 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 .fg{margin-bottom:12px;}
 .fl{font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:4px;display:block;}
 .fi{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:'Noto Sans JP',sans-serif;background:var(--surface);color:var(--text);outline:none;}
-.fi[type="date"],.fi[type="time"]{min-height:38px;}
+.fi[type="date"],.fi[type="time"]{min-height:38px;-webkit-appearance:none;appearance:none;display:block;width:100%;}
 input::-webkit-date-and-time-value{text-align:left;}
 .fi:focus{border-color:var(--text);}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -213,6 +213,9 @@ input::-webkit-date-and-time-value{text-align:left;}
 
 /* ===== スマホ対応 ===== */
 @media (max-width: 768px) {
+
+  /* iOSの入力時自動ズーム防止（16px未満だとズームされる） */
+  .fi, input[type="text"], textarea { font-size: 16px; }
 
   /* サイドバーを非表示にしてボトムナビに変更 */
   .sidebar { display: none; }
@@ -364,7 +367,7 @@ input::-webkit-date-and-time-value{text-align:left;}
         <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="switchView()">バイト画面を確認</button>
       </div>
       <div style="margin-top:6px;">
-        <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="pushSettingClick()">🔔 通知をオンにする</button>
+        <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="pushSettingClick()">🔔 通知設定（オン/オフ）</button>
       </div>
       <div style="margin-top:6px;">
         <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;opacity:0.6;" onclick="logout()">ログアウト</button>
@@ -614,6 +617,12 @@ input::-webkit-date-and-time-value{text-align:left;}
       </div>
       <div style="padding:14px 8px;text-align:center;cursor:pointer;color:rgba(255,255,255,0.7);font-size:11px;" onclick="switchView();hideMobileMenu();">
         <div style="font-size:18px;margin-bottom:3px;">👤</div>バイト画面
+      </div>
+      <div style="padding:14px 8px;text-align:center;cursor:pointer;color:rgba(255,255,255,0.7);font-size:11px;" onclick="pushSettingClick();hideMobileMenu();">
+        <div style="font-size:18px;margin-bottom:3px;">🔔</div>通知設定
+      </div>
+      <div style="padding:14px 8px;text-align:center;cursor:pointer;color:rgba(255,255,255,0.7);font-size:11px;" onclick="hideMobileMenu();logout();">
+        <div style="font-size:18px;margin-bottom:3px;">⏻</div>ログアウト
       </div>
     </div>
   </div>
@@ -2445,7 +2454,7 @@ async function enablePushFromBanner() {
   }
 }
 
-// 「通知をオンにする」ボタン用（バナーを閉じた人の救済・後からオンにできる）
+// 「通知設定」ボタン用トグル（オン⇄オフ切替。バナーを閉じた人の救済にも）
 async function pushSettingClick() {
   if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
     showNotif('この環境は通知に未対応です。iPhoneは「ホーム画面に追加」したアプリから開いてください。');
@@ -2455,9 +2464,29 @@ async function pushSettingClick() {
     showNotif('通知がブロックされています。端末の設定＞通知（またはブラウザのサイト設定）から許可してください。');
     return;
   }
-  await subscribePush();
-  if (Notification.permission === 'granted') {
-    showNotif('通知は有効です');
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === 'granted') {
+      // 現在オン → オフにするか確認
+      if (confirm('通知をオフにしますか？')) {
+        await supaFetch('push_subscriptions?endpoint=eq.' + encodeURIComponent(sub.endpoint), {
+          method: 'DELETE',
+          prefer: 'return=minimal'
+        });
+        await sub.unsubscribe();
+        showNotif('通知をオフにしました');
+      }
+      return;
+    }
+    // 現在オフ → オンにする
+    await subscribePush();
+    if (Notification.permission === 'granted') {
+      showNotif('通知をオンにしました');
+    }
+  } catch (e) {
+    console.error('pushSettingClick failed:', e);
+    showNotif('通知設定の変更に失敗しました');
   }
 }
 
