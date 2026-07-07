@@ -137,6 +137,8 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 input::-webkit-date-and-time-value{text-align:left;}
 .fi:focus{border-color:var(--text);}
 .fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.fr>.fg{min-width:0;}
+.fi{min-width:0;max-width:100%;box-sizing:border-box;}
 
 /* Tabs / Filters */
 .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;}
@@ -360,6 +362,9 @@ input::-webkit-date-and-time-value{text-align:left;}
       </div>
       <div style="margin-top:10px;">
         <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="switchView()">バイト画面を確認</button>
+      </div>
+      <div style="margin-top:6px;">
+        <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;" onclick="pushSettingClick()">🔔 通知をオンにする</button>
       </div>
       <div style="margin-top:6px;">
         <button class="btn btn-outline btn-sm" style="width:100%;font-size:11px;opacity:0.6;" onclick="logout()">ログアウト</button>
@@ -623,7 +628,10 @@ input::-webkit-date-and-time-value{text-align:left;}
       <div class="baito-logo">KITCHEN CAR SHIFT</div>
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div class="baito-welcome" id="baitoWelcome">ゲストさん</div>
-        <span onclick="logout()" style="font-size:11px;color:var(--text-3);cursor:pointer;text-decoration:underline;">ログアウト</span>
+        <div style="display:flex;gap:14px;align-items:center;">
+          <span onclick="pushSettingClick()" style="font-size:11px;color:var(--text-3);cursor:pointer;text-decoration:underline;">🔔通知</span>
+          <span onclick="logout()" style="font-size:11px;color:var(--text-3);cursor:pointer;text-decoration:underline;">ログアウト</span>
+        </div>
       </div>
     </div>
     <div class="baito-tabs">
@@ -662,7 +670,7 @@ input::-webkit-date-and-time-value{text-align:left;}
     <div class="modal-hd"><div class="modal-title" id="vModalTitle">現場を追加</div><button class="modal-x" onclick="closeModal('venueModal')">✕</button></div>
     <div class="modal-bd">
       <input type="hidden" id="vId">
-      <div class="fg"><label class="fl">現場名 *</label><input class="fi" id="vName" placeholder="例：渋谷ランチマーケット"></div>
+      <div class="fg"><label class="fl">現場名 *</label><input class="fi" id="vName" autocomplete="off" placeholder="例：渋谷ランチマーケット"></div>
       <div class="fr">
         <div class="fg"><label class="fl">日付 *</label><input class="fi" type="date" id="vDate"></div>
         <div class="fg"><label class="fl">担当カー *</label><select class="fi" id="vCar"></select></div>
@@ -671,7 +679,7 @@ input::-webkit-date-and-time-value{text-align:left;}
         <div class="fg"><label class="fl">開始時間</label><input class="fi" type="time" id="vStart" value="10:00"></div>
         <div class="fg"><label class="fl">終了時間</label><input class="fi" type="time" id="vEnd" value="16:00"></div>
       </div>
-      <div class="fg"><label class="fl">場所</label><input class="fi" id="vLoc" placeholder="例：渋谷区神南1丁目"></div>
+      <div class="fg"><label class="fl">場所</label><input class="fi" id="vLoc" autocomplete="off" placeholder="例：渋谷区神南1丁目"></div>
       <div class="fr">
         <div class="fg"><label class="fl">必要人数 *</label><input class="fi" type="number" id="vNeed" value="3" min="1" max="20"></div>
         <div class="fg"><label class="fl">確定人数</label><input class="fi" type="number" id="vConfirmed" value="0" min="0" max="20"></div>
@@ -715,9 +723,9 @@ input::-webkit-date-and-time-value{text-align:left;}
     <div class="modal-hd"><div class="modal-title" id="sModalTitle">スタッフを追加</div><button class="modal-x" onclick="closeModal('staffModal')">✕</button></div>
     <div class="modal-bd">
       <input type="hidden" id="sId">
-      <div class="fg"><label class="fl">本名（漢字） *</label><input class="fi" id="sName" placeholder="例：稲穂 虎之介"></div>
-      <div class="fg"><label class="fl">フリガナ</label><input class="fi" id="sFurigana" placeholder="例：イナホ トラノスケ"></div>
-      <div class="fg"><label class="fl">最寄り駅</label><input class="fi" id="sStation" placeholder="例：志木駅"></div>
+      <div class="fg"><label class="fl">本名（漢字） *</label><input class="fi" id="sName" autocomplete="off" placeholder="例：稲穂 虎之介"></div>
+      <div class="fg"><label class="fl">フリガナ</label><input class="fi" id="sFurigana" autocomplete="off" placeholder="例：イナホ トラノスケ"></div>
+      <div class="fg"><label class="fl">最寄り駅</label><input class="fi" id="sStation" autocomplete="off" placeholder="例：志木駅"></div>
       <div class="fg"><label class="fl">権限</label>
         <select class="fi" id="sRole" disabled style="opacity:0.6;cursor:not-allowed;"><option value="baito">バイト</option><option value="staff">社員</option><option value="owner">オーナー</option><option value="master">マスター</option></select>
         <div style="font-size:11px;color:var(--text-3);margin-top:4px;">※セキュリティのため権限の変更はSupabase管理画面から行います（新規追加はバイトで登録されます）</div>
@@ -1601,7 +1609,7 @@ function openApplicantPanel(vid){
               <input type="time" value="${arrivalVal}" id="arrival_${a.id}" 
                 style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:'Noto Sans JP',sans-serif;width:110px;"
                 placeholder="入り時間">
-              <input type="text" value="${a.arrival_memo||''}" id="memo_${a.id}"
+              <input type="text" autocomplete="off" value="${a.arrival_memo||''}" id="memo_${a.id}"
                 style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:11px;font-family:'Noto Sans JP',sans-serif;width:110px;"
                 placeholder="メモ（集合場所等）">
             </div>
@@ -1928,7 +1936,7 @@ async function renderContact(){
               ${a.arrival_notified ? '再送信' : '入り送信'}
             </button>
           </div>
-          <input type="text" value="${a.arrival_memo||''}" id="ct_memo_${a.id}"
+          <input type="text" autocomplete="off" value="${a.arrival_memo||''}" id="ct_memo_${a.id}"
             placeholder="メモ（集合場所等）"
             style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:11px;width:100%;">
           <button class="btn btn-sm btn-outline" style="width:100%;" onclick="openChat(${a.id}, true)">
@@ -2437,6 +2445,22 @@ async function enablePushFromBanner() {
   }
 }
 
+// 「通知をオンにする」ボタン用（バナーを閉じた人の救済・後からオンにできる）
+async function pushSettingClick() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    showNotif('この環境は通知に未対応です。iPhoneは「ホーム画面に追加」したアプリから開いてください。');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    showNotif('通知がブロックされています。端末の設定＞通知（またはブラウザのサイト設定）から許可してください。');
+    return;
+  }
+  await subscribePush();
+  if (Notification.permission === 'granted') {
+    showNotif('通知は有効です');
+  }
+}
+
 // プッシュ送信ヘルパー（staffIds省略時は全購読者へ）
 function sendPush(title, bodyText, staffIds) {
   const payload = { title: title, body: bodyText, url: window.location.origin };
@@ -2916,15 +2940,15 @@ initApp();
     <div class="station-sub">シフト申請に必要です。<br>初回のみ入力してください。</div>
     <div class="fg" style="margin-bottom:12px;text-align:left;">
       <label class="fl">本名（漢字フルネーム） *</label>
-      <input class="fi" id="realNameInput" placeholder="例：稲穂 虎之介">
+      <input class="fi" id="realNameInput" autocomplete="off" placeholder="例：稲穂 虎之介">
     </div>
     <div class="fg" style="margin-bottom:12px;text-align:left;">
       <label class="fl">フリガナ（カタカナ） *</label>
-      <input class="fi" id="furiganaInput" placeholder="例：イナホ トラノスケ">
+      <input class="fi" id="furiganaInput" autocomplete="off" placeholder="例：イナホ トラノスケ">
     </div>
     <div class="fg" style="margin-bottom:16px;text-align:left;">
       <label class="fl">最寄り駅 *</label>
-      <input class="fi" id="stationInput" placeholder="例：志木駅">
+      <input class="fi" id="stationInput" autocomplete="off" placeholder="例：志木駅">
     </div>
     <button class="btn btn-primary" style="width:100%;" onclick="window.saveStation()">登録して始める</button>
   </div>
