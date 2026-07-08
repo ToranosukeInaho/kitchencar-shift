@@ -338,7 +338,8 @@ input::-webkit-date-and-time-value{text-align:left;}
 <!-- ADMIN -->
 <div id="homeAddBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:950;background:#1A472A;color:#fff;padding:12px 40px 12px 14px;font-size:12px;line-height:1.7;">
   📲 <b>ホーム画面に追加すると、通知が届き、次回からログイン不要になります</b><br>
-  共有ボタン（□に↑）→「ホーム画面に追加」→ 以後は<b>ホームのアイコンから</b>開いてください
+  共有ボタン（□に↑）→「ホーム画面に追加」→ 以後は<b>ホームのアイコンから</b>開いてください<br>
+  <span id="handoffCodeLine" style="display:none;">アイコンから開いてログイン画面が出たら、ログインコード「<b id="handoffCode" style="font-size:15px;letter-spacing:2px;"></b>」を入力</span>
   <span onclick="dismissHomeAddBanner()" style="position:absolute;top:10px;right:12px;font-size:18px;cursor:pointer;">×</span>
 </div>
 <div id="pushBanner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:900;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.15);align-items:center;gap:12px;max-width:340px;">
@@ -2737,8 +2738,8 @@ async function ensureHandoffToken() {
   if (!isIOS() || isStandalone() || !currentUser || !currentUser.dbId) return;
   try {
     let lt = localStorage.getItem('kcs_lt');
-    if (!lt) {
-      lt = 'lt_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    if (!lt || !/^\d{6}$/.test(lt)) {
+      lt = String(Math.floor(100000 + Math.random() * 900000));
       const ins = await supaFetch('login_tokens', {
         method: 'POST',
         prefer: 'return=representation',
@@ -2748,12 +2749,55 @@ async function ensureHandoffToken() {
       localStorage.setItem('kcs_lt', lt);
     }
     window.history.replaceState({}, document.title, '/?lt=' + lt);
-    // ホーム追加の案内バナー（×で閉じたら次回から出さない）
-    if (!localStorage.getItem('kcs_hs_dismiss')) {
-      const b = document.getElementById('homeAddBanner');
-      if (b) b.style.display = 'block';
+    // ホーム追加の案内バナー＋ログインコード表示
+    const b = document.getElementById('homeAddBanner');
+    const codeEl = document.getElementById('handoffCode');
+    const codeLine = document.getElementById('handoffCodeLine');
+    if (codeEl) codeEl.textContent = lt;
+    if (codeLine) codeLine.style.display = 'inline';
+    if (b && !localStorage.getItem('kcs_hs_dismiss')) {
+      b.style.display = 'block';
     }
   } catch (e) { console.error('ensureHandoffToken failed:', e); }
+}
+
+// トークン（6桁コード）でログイン処理（URLの?lt= と コード入力の両方から使う）
+async function loginWithToken(t) {
+  const tk = await supaFetch('login_tokens?token=eq.' + encodeURIComponent(t));
+  if (!tk || !tk[0]) return false;
+  // 発行から7日以内のみ有効
+  const age = Date.now() - new Date(tk[0].created_at).getTime();
+  if (age > 7 * 24 * 3600 * 1000) return false;
+  const trows = await supaFetch('staff?id=eq.' + tk[0].staff_id);
+  if (!trows || !trows[0]) return false;
+  currentUser = {
+    lineId: trows[0].line_id,
+    dbId: trows[0].id,
+    role: trows[0].role,
+    displayName: trows[0].name,
+    name: trows[0].name
+  };
+  saveSession(currentUser);
+  try { localStorage.setItem('kcs_lt', t); } catch (e) {}
+  console.log('Token login:', currentUser.displayName, '(' + currentUser.role + ')');
+  await applyLogin();
+  return true;
+}
+
+// ログイン画面の「コードでログイン」ボタン
+async function codeLogin() {
+  const input = document.getElementById('codeLoginInput');
+  const msg = document.getElementById('codeLoginMsg');
+  const code = (input.value || '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    if (msg) { msg.textContent = '6桁の数字を入力してください'; msg.style.display = 'block'; }
+    return;
+  }
+  const ok = await loginWithToken(code);
+  if (!ok && msg) {
+    msg.textContent = 'コードが無効です。Safariでログインし直して新しいコードを確認してください。';
+    msg.style.display = 'block';
+  }
 }
 
 function dismissHomeAddBanner() {
@@ -2936,24 +2980,8 @@ async function initApp() {
   const lt = params.get('lt');
   if (lt && /^[\w-]+$/.test(lt)) {
     try {
-      const tk = await supaFetch('login_tokens?token=eq.' + encodeURIComponent(lt));
-      if (tk && tk[0]) {
-        const trows = await supaFetch('staff?id=eq.' + tk[0].staff_id);
-        if (trows && trows[0]) {
-          currentUser = {
-            lineId: trows[0].line_id,
-            dbId: trows[0].id,
-            role: trows[0].role,
-            displayName: trows[0].name,
-            name: trows[0].name
-          };
-          saveSession(currentUser);
-          try { localStorage.setItem('kcs_lt', lt); } catch (e) {}
-          console.log('Token login:', currentUser.displayName, '(' + currentUser.role + ')');
-          await applyLogin();
-          return;
-        }
-      }
+      const ok = await loginWithToken(lt);
+      if (ok) return;
       console.log('Handoff token invalid or expired');
     } catch (e) {
       console.error('Token login failed:', e);
@@ -2969,6 +2997,13 @@ async function initApp() {
 
   // ログイン画面を表示
   if(ls) ls.style.display = 'flex';
+  // ホームアプリ（iOS）の場合はコード入力欄と診断用URLを表示
+  if (isStandalone()) {
+    const ca = document.getElementById('codeLoginArea');
+    if (ca) ca.style.display = 'block';
+    const du = document.getElementById('debugUrl');
+    if (du) { du.textContent = 'URL: ' + window.location.href; du.style.display = 'block'; }
+  }
 }
 
 // グローバル関数として登録
@@ -3165,6 +3200,16 @@ initApp();
       </div>
       LINEでログイン
     </button>
+
+    <div id="codeLoginArea" style="display:none;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px;">Safariでログイン済みの方は、表示されたログインコードを入力</div>
+      <div style="display:flex;gap:8px;">
+        <input class="fi" id="codeLoginInput" inputmode="numeric" autocomplete="off" placeholder="6桁コード" style="flex:1;text-align:center;letter-spacing:3px;">
+        <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="codeLogin()">ログイン</button>
+      </div>
+      <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
+    </div>
+    <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
 
   </div>
 </div>
