@@ -339,7 +339,7 @@ input::-webkit-date-and-time-value{text-align:left;}
 <div id="homeAddBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:950;background:#1A472A;color:#fff;padding:12px 40px 12px 14px;font-size:12px;line-height:1.7;">
   📲 <b>ホーム画面に追加すると、通知が届き、次回からログイン不要になります</b><br>
   共有ボタン（□に↑）→「ホーム画面に追加」→ 以後は<b>ホームのアイコンから</b>開いてください<br>
-  <span id="handoffCodeLine" style="display:none;">アイコンから開いてログイン画面が出たら、ログインコード「<b id="handoffCode" style="font-size:15px;letter-spacing:2px;"></b>」を入力</span>
+  <span id="handoffCodeLine" style="display:none;">アイコンから開いたら、ログインコード「<b id="handoffCode" style="font-size:15px;letter-spacing:2px;"></b>」を入力（このコードは他人に教えない）</span>
   <span onclick="dismissHomeAddBanner()" style="position:absolute;top:10px;right:12px;font-size:18px;cursor:pointer;">×</span>
 </div>
 <div id="pushBanner" style="display:none;position:fixed;bottom:20px;right:20px;z-index:900;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.15);align-items:center;gap:12px;max-width:340px;">
@@ -2748,7 +2748,7 @@ async function ensureHandoffToken() {
       if (!ins) return;
       localStorage.setItem('kcs_lt', lt);
     }
-    window.history.replaceState({}, document.title, '/?lt=' + lt);
+    // URLにはトークンを付けない（共有時の漏えい防止。引き継ぎはコード入力のみ）
     // ホーム追加の案内バナー＋ログインコード表示
     const b = document.getElementById('homeAddBanner');
     const codeEl = document.getElementById('handoffCode');
@@ -2976,18 +2976,6 @@ async function initApp() {
     }
   }
 
-  // ホーム追加アイコンの引き継ぎトークンでログイン（iOS: Safari→ホームアプリ）
-  const lt = params.get('lt');
-  if (lt && /^[\w-]+$/.test(lt)) {
-    try {
-      const ok = await loginWithToken(lt);
-      if (ok) return;
-      console.log('Handoff token invalid or expired');
-    } catch (e) {
-      console.error('Token login failed:', e);
-    }
-  }
-
   // セッションチェック（開発用ログイン済みか）
   if (currentUser) {
     if(ls) ls.style.display = 'none';
@@ -3206,7 +3194,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v11</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v13</div>
 
   </div>
 </div>
