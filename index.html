@@ -668,7 +668,7 @@ input::-webkit-date-and-time-value{text-align:left;}
           <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">今月の出勤回数</div>
           <div style="font-size:28px;font-weight:700;font-family:'DM Mono',monospace;" id="shiftCount">0</div>
         </div>
-        <div style="margin-top:12px;"><button class="btn btn-outline" style="width:100%;" onclick="switchView()">管理者画面に戻る</button></div>
+        <div id="backToAdminBtn" style="margin-top:12px;display:none;"><button class="btn btn-outline" style="width:100%;" onclick="switchView()">管理者画面に戻る</button></div>
       </div>
       <div id="btPast" class="hidden">
         <div style="font-size:11px;font-weight:500;color:var(--text-2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">過去の確定シフト</div>
@@ -2332,6 +2332,11 @@ function showPage(p){
 }
 
 function switchView(){
+  // 管理者以外は管理者画面へ切り替え不可
+  if(!currentUser || ['master','owner','staff'].indexOf(currentUser.role)===-1){
+    showNotif('権限がありません');
+    return;
+  }
   const a=document.getElementById('adminView'),b=document.getElementById('baitoView');
   if(a.classList.contains('hidden')){a.classList.remove('hidden');b.classList.add('hidden');}
   else{a.classList.add('hidden');b.classList.remove('hidden');}
@@ -2878,6 +2883,9 @@ async function applyLogin() {
   if (ls2) ls2.style.display = 'none';
 
   const adminRoles = ['master', 'owner', 'staff'];
+  // 「管理者画面に戻る」ボタンは管理者だけに表示
+  const backBtn = document.getElementById('backToAdminBtn');
+  if (backBtn) backBtn.style.display = adminRoles.includes(currentUser.role) ? 'block' : 'none';
   if (adminRoles.includes(currentUser.role)) {
     document.getElementById('adminView').classList.remove('hidden');
     document.getElementById('baitoView').classList.add('hidden');
@@ -3246,7 +3254,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v14</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v15</div>
 
   </div>
 </div>
