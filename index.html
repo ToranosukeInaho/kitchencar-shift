@@ -966,7 +966,7 @@ async function saveVenue(){
       .filter(a => a.venueId===id && (a.status==='pending' || a.status==='approved'))
       .map(a => String(a.staffId));
     if(editIds.length > 0){
-      sendPush('現場情報の更新', `「${name}」が更新されました（${fmtDate(date)} ${start}〜${end}）`, editIds);
+      sendPush('現場情報の更新', `「${name}」が更新されました（${fmtDate(date)} ${start}〜${end}）`, editIds, 'shift');
     }
     showNotif(`「${name}」を更新しました`);
   } else {
@@ -978,7 +978,7 @@ async function saveVenue(){
         .filter(s => s.role === 'baito' && (target !== 'regular' || s.regular))
         .map(s => String(s.id));
       if(targetIds.length > 0){
-        sendPush('新しい現場の募集', `${name}（${fmtDate(date)} ${start}〜${end}）`, targetIds);
+        sendPush('新しい現場の募集', `${name}（${fmtDate(date)} ${start}〜${end}）`, targetIds, 'venue');
       }
     }
     showNotif(`「${name}」を追加しました。通知を送りました。`);
@@ -1012,7 +1012,7 @@ function deleteVenue(){
       .filter(a => a.status==='pending' || a.status==='approved')
       .map(a => String(a.staffId));
     if(cancelNotifyIds.length > 0){
-      sendPush('現場中止のお知らせ', `「${v.name}」（${fmtDate(v.date)}）は中止になりました${cancelReason ? '。理由：' + cancelReason : ''}`, cancelNotifyIds);
+      sendPush('現場中止のお知らせ', `「${v.name}」（${fmtDate(v.date)}）は中止になりました${cancelReason ? '。理由：' + cancelReason : ''}`, cancelNotifyIds, 'shift');
     }
     
     // Step1: キャンセル履歴を記録（確定スタッフ分）
@@ -1116,7 +1116,7 @@ async function approve(id){
 
   // 本人へシフト確定通知
   if(v){
-    sendPush('シフト確定', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）のシフトが確定しました`, [String(a.staffId)]);
+    sendPush('シフト確定', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）のシフトが確定しました`, [String(a.staffId)], 'shift');
   }
 
   // ダブルブッキング防止：同日の他の申請を自動キャンセル
@@ -1134,7 +1134,7 @@ async function approve(id){
       // 自動キャンセルの通知（本人へ）
       const dupVenue = venues.find(vv=>vv.id===dup.venueId);
       if(dupVenue){
-        sendPush('応募の自動キャンセル', `同日のシフト確定により「${dupVenue.name}」の応募は取り下げられました`, [String(dup.staffId)]);
+        sendPush('応募の自動キャンセル', `同日のシフト確定により「${dupVenue.name}」の応募は取り下げられました`, [String(dup.staffId)], 'shift');
       }
     }
     if(sameDay.length > 0){
@@ -1183,7 +1183,7 @@ async function reject(id){
   if(appIdx !== -1) applicants[appIdx].status = 'rejected';
   // 本人へ通知
   const rv = venues.find(x=>x.id===a.venueId);
-  sendPush('応募結果', `「${rv ? rv.name : a.venueName}」の応募は今回見送りとなりました`, [String(a.staffId)]);
+  sendPush('応募結果', `「${rv ? rv.name : a.venueName}」の応募は今回見送りとなりました`, [String(a.staffId)], 'shift');
   renderApplicants();
   renderBaito();
   showNotif(`${a.staffName}さんを却下しました。バイトに通知を送りました。`);
@@ -1212,7 +1212,7 @@ async function doIncrease(){
     .filter(s => s.role==='baito' && (v.target !== 'regular' || s.regular))
     .map(s => String(s.id));
   if(incIds.length > 0){
-    sendPush('追加募集', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）で追加募集中です`, incIds);
+    sendPush('追加募集', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）で追加募集中です`, incIds, 'venue');
   }
   showNotif(`${v.name}の必要人数を${v.need}人に変更しました。全スタッフに通知しました。`);
 }
@@ -1554,13 +1554,16 @@ async function submitApply(){
       renderBaito();
       // 管理者へプッシュ通知
       const applicantName = currentUser.displayName || currentUser.name;
-      sendPush('新しい応募', applicantName + 'さんが' + v.name + 'に応募', adminStaffIds());
+      sendPush('新しい応募', applicantName + 'さんが' + v.name + 'に応募', adminStaffIds(), 'apply');
     }
   }
   showNotif('シフトを提出しました！確定後に通知が届きます。');
 }
 
 function baitoTab(tab){
+  // タブを開いたら該当カテゴリのバッジを消す
+  if(tab==='mine') clearBadgeCategory(['shift','chat']);
+  if(tab==='open') clearBadgeCategory(['venue']);
   ['Open','Mine','Past'].forEach(t=>{const el=document.getElementById('bt'+t); if(el) el.classList.add('hidden');});
   const target=document.getElementById('bt'+tab.charAt(0).toUpperCase()+tab.slice(1));
   if(target) target.classList.remove('hidden');
@@ -2107,12 +2110,12 @@ async function sendChatMessage(){
     if(chatIsAdmin){
       // 管理者→そのバイト1人だけ
       if(chatApp && chatApp.staffId){
-        sendPush('管理者からメッセージ', truncMsg(content), [String(chatApp.staffId)]);
+        sendPush('管理者からメッセージ', truncMsg(content), [String(chatApp.staffId)], 'chat');
       }
     } else {
       // バイト→管理者
       const fromName = (currentUser && (currentUser.displayName || currentUser.name)) || 'スタッフ';
-      sendPush(fromName + 'さんからメッセージ', truncMsg(content), adminStaffIds());
+      sendPush(fromName + 'さんからメッセージ', truncMsg(content), adminStaffIds(), 'chat');
     }
     if(chatIsAdmin){
       // 管理者が返信→バイトからの未読を既読に
@@ -2317,6 +2320,9 @@ function updateMobileBadges(){
 async function renderAll(){refreshMetrics();renderVenues();renderApplicants();renderCalendar();renderStaff();await renderBaito();await renderContact();refreshBadges();}
 
 function showPage(p){
+  // ページを開いたら該当カテゴリのバッジを消す
+  if(p==='applicants') clearBadgeCategory(['apply']);
+  if(p==='contact') clearBadgeCategory(['chat']);
   document.querySelectorAll('[id^="page-"]').forEach(e=>e.classList.add('hidden'));
   document.getElementById('page-'+p).classList.remove('hidden');
   document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
@@ -2496,9 +2502,55 @@ async function pushSettingClick() {
   }
 }
 
+// ===== アイコンバッジ帳簿（カテゴリ別・端末ローカル） =====
+const BDB = 'kcs-badges';
+const BSTORE = 'counts';
+function bdbOpen() {
+  return new Promise(function (res, rej) {
+    const r = indexedDB.open(BDB, 1);
+    r.onupgradeneeded = function () { r.result.createObjectStore(BSTORE); };
+    r.onsuccess = function () { res(r.result); };
+    r.onerror = function () { rej(r.error); };
+  });
+}
+function badgeGetAll(db) {
+  return new Promise(function (res, rej) {
+    const store = db.transaction(BSTORE, 'readonly').objectStore(BSTORE);
+    const out = {};
+    const cur = store.openCursor();
+    cur.onsuccess = function (e) {
+      const c = e.target.result;
+      if (c) { out[c.key] = c.value; c.continue(); } else { res(out); }
+    };
+    cur.onerror = function () { rej(cur.error); };
+  });
+}
+function badgeSet(db, key, val) {
+  return new Promise(function (res, rej) {
+    const tx = db.transaction(BSTORE, 'readwrite');
+    tx.objectStore(BSTORE).put(val, key);
+    tx.oncomplete = function () { res(); };
+    tx.onerror = function () { rej(tx.error); };
+  });
+}
+// 指定カテゴリの未読を0にして、アイコンバッジを合計で更新
+async function clearBadgeCategory(cats) {
+  try {
+    const db = await bdbOpen();
+    for (const c of cats) { await badgeSet(db, c, 0); }
+    const all = await badgeGetAll(db);
+    let total = 0;
+    for (const k in all) total += all[k];
+    if ('setAppBadge' in navigator) {
+      if (total > 0) { navigator.setAppBadge(total); }
+      else if ('clearAppBadge' in navigator) { navigator.clearAppBadge(); }
+    }
+  } catch (e) { /* バッジ失敗は無視 */ }
+}
+
 // プッシュ送信ヘルパー（staffIds省略時は全購読者へ）
-function sendPush(title, bodyText, staffIds) {
-  const payload = { title: title, body: bodyText, url: window.location.origin };
+function sendPush(title, bodyText, staffIds, category) {
+  const payload = { title: title, body: bodyText, url: window.location.origin, category: category || 'other' };
   if (Array.isArray(staffIds)) payload.staff_ids = staffIds.map(String);
   fetch('/api/send-push', {
     method: 'POST',
@@ -3194,7 +3246,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v13</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v14</div>
 
   </div>
 </div>

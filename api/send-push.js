@@ -1,9 +1,9 @@
-// Vercel Serverless Function: Web Push 送信（コオロギ）v2
+// Vercel Serverless Function: Web Push 送信（コオロギ）v3
 // 配置: api/send-push.js
 // 必要な環境変数(Vercel): SUPA_URL, SUPA_SERVICE_KEY, VAPID_PUBLIC, VAPID_PRIVATE, VAPID_SUBJECT
 //
 // body.staff_ids: 宛先のstaff_id配列（省略時は全購読者に送信）
-//   例: { title, body, url, staff_ids: ["3", "12"] }
+// body.category: 通知カテゴリ（apply / venue / shift / chat）— バッジ集計用
 
 const webpush = require('web-push');
 
@@ -26,7 +26,6 @@ module.exports = async function handler(req, res) {
 
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-  // body のパース（Vercel は通常パース済みだが文字列のこともある）
   let body = req.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch (e) { body = {}; }
@@ -37,23 +36,22 @@ module.exports = async function handler(req, res) {
     title: body.title || '通知',
     body: body.body || '',
     url: body.url || '/',
-    icon: body.icon
+    icon: body.icon,
+    category: body.category || 'other'
   });
 
-  // 宛先フィルタ（staff_ids配列。英数字・ハイフン・アンダースコアのみ許可）
+  // 宛先フィルタ（staff_ids配列）
   let ids = null;
   if (Array.isArray(body.staff_ids)) {
     ids = body.staff_ids
       .map(function (x) { return String(x); })
       .filter(function (x) { return /^[\w-]+$/.test(x); });
     if (ids.length === 0) {
-      // 宛先指定されたが有効なIDがない → 誰にも送らない（全員送信への誤爆防止）
       res.status(200).json({ sent: 0, removed: 0, total: 0, note: 'no valid staff_ids' });
       return;
     }
   }
 
-  // 購読を取得
   let subs = [];
   try {
     let url = `${SUPA_URL}/rest/v1/push_subscriptions?select=*`;
@@ -85,7 +83,6 @@ module.exports = async function handler(req, res) {
       await webpush.sendNotification(subscription, payload);
       sent++;
     } catch (err) {
-      // 失効した購読(404/410)は削除
       if (err && (err.statusCode === 404 || err.statusCode === 410)) {
         try {
           await fetch(
