@@ -102,11 +102,11 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 .cal-legend{display:flex;gap:14px;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bg);}
 .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);}
 .legend-dot{width:8px;height:8px;border-radius:50%;}
-.cal-dow-row{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--border);}
+.cal-dow-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-bottom:1px solid var(--border);}
 .dow{text-align:center;font-size:11px;color:var(--text-2);font-weight:500;padding:7px 0;}
 .dow.sun{color:var(--open);}.dow.sat{color:#1B4FBF;}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);}
-.cal-cell{min-height:72px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:5px 4px;cursor:pointer;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));}
+.cal-cell{min-height:72px;min-width:0;overflow:hidden;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:5px 4px;cursor:pointer;}
 .cal-cell:nth-child(7n){border-right:none;}
 .cal-cell:hover{background:var(--bg);}
 .cal-day{font-size:11px;color:var(--text-2);text-align:right;margin-bottom:3px;font-family:'DM Mono',monospace;}
@@ -114,6 +114,8 @@ tbody td{padding:10px 14px;font-size:13px;vertical-align:middle;}
 .today-circle{background:var(--text);color:#fff;border-radius:50%;width:17px;height:17px;display:flex;align-items:center;justify-content:center;margin-left:auto;font-size:10px;}
 .cal-ev{font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .ce-full{background:var(--full-light);color:var(--full);}
+.ce-mine{background:#DCEFE2;color:#166534;}
+.ce-pend{background:#F5EBD0;color:#8a6a1f;}
 .ce-open{background:var(--open-light);color:var(--open);}
 .day-detail{border-top:1px solid var(--border);padding:14px 18px;background:var(--bg);}
 .day-detail-title{font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:10px;}
@@ -651,10 +653,34 @@ input::-webkit-date-and-time-value{text-align:left;}
     </div>
     <div class="baito-tabs">
       <div class="baito-tab active" onclick="baitoTab('open')">現場を探す</div>
+      <div class="baito-tab" onclick="baitoTab('cal')">カレンダー</div>
       <div class="baito-tab" onclick="baitoTab('mine')">マイシフト<span id="baitoUnreadBadge" style="display:none;background:#C0392B;color:#fff;font-size:10px;padding:1px 5px;border-radius:10px;margin-left:4px;vertical-align:middle;">0</span></div>
       <div class="baito-tab" onclick="baitoTab('past')">過去</div>
     </div>
     <div class="baito-content">
+      <div id="btCal" class="hidden">
+        <div class="cal-wrap" style="margin-bottom:14px;">
+          <div class="cal-header">
+            <div style="font-size:15px;font-weight:700;" id="bCalTitle"></div>
+            <div class="cal-nav">
+              <button class="cal-nav-btn" onclick="bChangeMonth(-1)">＜</button>
+              <span style="font-size:12px;color:var(--text-2);cursor:pointer;" onclick="bGoToday()">今日</span>
+              <button class="cal-nav-btn" onclick="bChangeMonth(1)">＞</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;padding:8px 12px;font-size:11px;color:var(--text-2);border-bottom:1px solid var(--border);">
+            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#166534;margin-right:4px;"></span>確定</span>
+            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#B58A2A;margin-right:4px;"></span>応募中</span>
+            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C0392B;margin-right:4px;"></span>募集中</span>
+          </div>
+          <div class="cal-dow-row">
+            <div class="dow sun">日</div><div class="dow">月</div><div class="dow">火</div>
+            <div class="dow">水</div><div class="dow">木</div><div class="dow">金</div><div class="dow sat">土</div>
+          </div>
+          <div class="cal-grid" id="bCalGrid"></div>
+        </div>
+        <div id="bDayDetail"></div>
+      </div>
       <div id="btOpen">
         <div style="font-size:11px;font-weight:500;color:var(--text-2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">募集中の現場</div>
         <div id="baitoList"></div>
@@ -1359,6 +1385,11 @@ function showDD(ds){
       <div class="dd-meta">${v.start}〜${v.end}</div>
       <div class="dd-meta">${v.confirmed} / ${v.need}人</div>
       <div style="margin-top:6px;">${statusBadge(v)}</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-outline" onclick="openApplicantPanel(${v.id})">申請者</button>
+        <button class="btn btn-sm btn-outline" onclick="openVenueModal(${v.id})">編集</button>
+        <button class="btn btn-sm btn-outline" onclick="openIncModal(${v.id})">増員</button>
+      </div>
     </div>`).join('');
 
   document.getElementById('ddGrid').innerHTML = venueCards + addBtn;
@@ -1552,6 +1583,8 @@ async function submitApply(){
       });
       renderApplicants();
       renderBaito();
+      // カレンダータブを開いていたら再描画
+      if(bLastDS){ renderBaitoCalendar(); showBDD(bLastDS); }
       // 管理者へプッシュ通知
       const applicantName = currentUser.displayName || currentUser.name;
       sendPush('新しい応募', applicantName + 'さんが' + v.name + 'に応募', adminStaffIds(), 'apply');
@@ -1560,14 +1593,108 @@ async function submitApply(){
   showNotif('シフトを提出しました！確定後に通知が届きます。');
 }
 
+// ===== バイトカレンダー =====
+let bCalYear = TODAY.getFullYear(), bCalMonth = TODAY.getMonth();
+let bLastDS = null;
+
+function bChangeMonth(d){
+  bCalMonth += d;
+  if(bCalMonth < 0){ bCalMonth = 11; bCalYear--; }
+  if(bCalMonth > 11){ bCalMonth = 0; bCalYear++; }
+  renderBaitoCalendar();
+}
+function bGoToday(){
+  bCalYear = TODAY.getFullYear(); bCalMonth = TODAY.getMonth();
+  renderBaitoCalendar();
+}
+
+// その日の「自分に関係ある現場」を種類付きで返す（確定 / 応募中 / 応募できる募集中）
+function baitoCalVenuesFor(ds){
+  const me = staffList.find(s=>s.id===currentUser?.dbId);
+  const meRegular = me ? me.regular : false;
+  const myApps = currentUser ? applicants.filter(a=>a.staffId===currentUser.dbId) : [];
+  const out = [];
+  venues.filter(v=>v.date===ds).forEach(v=>{
+    const myApp = myApps.find(a=>a.venueId===v.id);
+    if(myApp && myApp.status==='approved'){ out.push({v:v, kind:'mine'}); return; }
+    if(myApp && myApp.status==='pending'){ out.push({v:v, kind:'pend'}); return; }
+    if(isOpen(v) && v.date >= todayStr() && (v.target!=='regular' || meRegular)){ out.push({v:v, kind:'open'}); }
+  });
+  return out;
+}
+
+function renderBaitoCalendar(){
+  const t=document.getElementById('bCalTitle'); if(!t) return;
+  t.textContent=`${bCalYear}年 ${bCalMonth+1}月`;
+  const grid=document.getElementById('bCalGrid');
+  const first=new Date(bCalYear,bCalMonth,1).getDay();
+  const last=new Date(bCalYear,bCalMonth+1,0).getDate();
+  const prevLast=new Date(bCalYear,bCalMonth,0).getDate();
+  let html='',day=1,afterDay=1;
+  for(let i=0;i<42;i++){
+    let num,cls='',isThis=false,ds2='';
+    if(i<first){num=prevLast-(first-1-i);cls='other';}
+    else if(day<=last){num=day;isThis=true;const d=new Date(bCalYear,bCalMonth,day);cls=d.getDay()===0?'sun':d.getDay()===6?'sat':'';day++;}
+    else{num=afterDay++;cls='other';}
+    const isTd=isThis&&bCalYear===TODAY.getFullYear()&&bCalMonth===TODAY.getMonth()&&num===TODAY.getDate();
+    const numHtml=isTd?`<div class="cal-day"><div class="today-circle">${num}</div></div>`:`<div class="cal-day ${cls}">${num}</div>`;
+    let evs='';
+    if(isThis){
+      ds2=`${bCalYear}-${String(bCalMonth+1).padStart(2,'0')}-${String(num).padStart(2,'0')}`;
+      baitoCalVenuesFor(ds2).forEach(function(item){
+        const label = item.v.name.length > 6 ? item.v.name.slice(0,6)+'…' : item.v.name;
+        const c = item.kind==='mine'?'ce-mine':item.kind==='pend'?'ce-pend':'ce-open';
+        evs+=`<div class="cal-ev ${c}">${label}</div>`;
+      });
+    }
+    html+=`<div class="cal-cell" onclick="${isThis?`showBDD('${ds2}')`:''}">${numHtml}${evs}</div>`;
+  }
+  grid.innerHTML=html;
+}
+
+// 日付タップ → その日の現場カード（募集中はそのまま応募可能）
+function showBDD(ds){
+  bLastDS = ds;
+  const items = baitoCalVenuesFor(ds);
+  const d=new Date(ds+'T00:00:00');
+  const label=`${d.getMonth()+1}月${d.getDate()}日（${WD[d.getDay()]}）`;
+  const box=document.getElementById('bDayDetail');
+  const myApps = currentUser ? applicants.filter(a=>a.staffId===currentUser.dbId) : [];
+  const cards = items.map(function(item){
+    const v = item.v;
+    let btn='';
+    if(item.kind==='mine'){
+      btn=`<button class="apply-btn" style="background:var(--full-light);color:var(--full);border-color:#86efac;" disabled>✓ 出勤確定</button>`;
+    } else if(item.kind==='pend'){
+      btn=`<button class="apply-btn" disabled style="background:#F5EBD0;color:#8a6a1f;border-color:#e5d5a5;">✓ 提出済み</button>`;
+    } else {
+      const sameDayApproved = myApps.find(a=>a.status==='approved'&&venues.find(vv=>vv.id===a.venueId)?.date===v.date);
+      btn = sameDayApproved
+        ? `<button class="apply-btn" disabled style="background:#F1EFE8;color:var(--text-3);border-color:var(--border);">他現場で確定済み</button>`
+        : `<button class="apply-btn" onclick="toggleApply(this,${v.id})">シフトを出す</button>`;
+    }
+    return `<div class="bv-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div class="bv-name">${v.name}</div>${carTag(v.carIdx)}
+      </div>
+      <div class="bv-meta">⊟ ${fmtDate(v.date)} ${v.start}〜${v.end}</div>
+      <div class="bv-meta">◎ ${v.loc||'場所未設定'}</div>
+      ${btn}
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div style="font-size:13px;font-weight:700;margin:4px 0 8px;">${label}の現場</div>` + (cards || '<div class="empty">この日の現場はありません</div>');
+}
+
 function baitoTab(tab){
   // タブを開いたら該当カテゴリのバッジを消す
   if(tab==='mine') clearBadgeCategory(['shift','chat']);
   if(tab==='open') clearBadgeCategory(['venue']);
-  ['Open','Mine','Past'].forEach(t=>{const el=document.getElementById('bt'+t); if(el) el.classList.add('hidden');});
+  if(tab==='cal') clearBadgeCategory(['venue']);
+  ['Open','Cal','Mine','Past'].forEach(t=>{const el=document.getElementById('bt'+t); if(el) el.classList.add('hidden');});
   const target=document.getElementById('bt'+tab.charAt(0).toUpperCase()+tab.slice(1));
   if(target) target.classList.remove('hidden');
-  const idx={open:0,mine:1,past:2}[tab];
+  if(tab==='cal') renderBaitoCalendar();
+  const idx={open:0,cal:1,mine:2,past:3}[tab];
   document.querySelectorAll('.baito-tab').forEach((el,i)=>el.classList.toggle('active',i===idx));
 }
 
@@ -3254,7 +3381,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v15</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v16</div>
 
   </div>
 </div>
