@@ -1505,6 +1505,9 @@ async function renderBaito(){
         <button onclick="openBaitoChat(${a.id})" style="width:100%;margin-top:6px;padding:8px;border-radius:var(--radius-sm);border:1px solid ${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open)':'var(--border-strong)'};background:${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open-light)':'transparent'};font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;color:${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open)':'var(--text)'};display:flex;align-items:center;justify-content:center;gap:6px;">
           💬 管理者と連絡する${(()=>{const cnt=(messages[a.id]||[]).filter(m=>m.sender==='admin'&&!m.is_read).length;return cnt>0?` <span style="background:var(--open);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;">${cnt}件未読</span>`:''})()}
         </button>
+        <button onclick="openGroupChat(${v.id})" style="width:100%;margin-top:6px;padding:8px;border-radius:var(--radius-sm);border:1px solid var(--border-strong);background:transparent;font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;color:var(--text);display:flex;align-items:center;justify-content:center;gap:6px;">
+          👥 現場グループチャット
+        </button>
       </div>
       <span class="status-badge status-full" style="font-size:11px;">確定</span>
     </div>`;
@@ -1591,6 +1594,96 @@ async function submitApply(){
     }
   }
   showNotif('シフトを提出しました！確定後に通知が届きます。');
+}
+
+// ===== 現場グループチャット =====
+let gchatVenueId = null;
+let gchatMsgCache = {}; // {venueId: [rows]}
+let gchatPollTimer = null;
+
+function escHtml(t){
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function dbGetGroupMessages(venueId){
+  return await supaFetch('group_messages?venue_id=eq.' + venueId + '&order=created_at.asc');
+}
+
+// 参加者 = その現場の確定バイト + 管理者全員
+function groupParticipants(venueId){
+  const ids = applicants.filter(a=>a.venueId===venueId && a.status==='approved').map(a=>String(a.staffId));
+  adminStaffIds().forEach(function(id){ if(ids.indexOf(id)===-1) ids.push(id); });
+  return ids;
+}
+
+async function openGroupChat(venueId){
+  const v = venues.find(x=>x.id===venueId); if(!v) return;
+  gchatVenueId = venueId;
+  document.getElementById('gchatTitle').textContent = v.name + ' グループ';
+  const members = applicants.filter(a=>a.venueId===venueId && a.status==='approved').map(a=>a.staffName);
+  document.getElementById('gchatSub').textContent = fmtDate(v.date) + ' ' + v.start + '〜' + v.end + '　参加: ' + (members.join('、') || '—') + ' ＋管理者';
+  const rows = await dbGetGroupMessages(venueId);
+  gchatMsgCache[venueId] = rows || [];
+  renderGroupMessages();
+  const ov = document.getElementById('gchatOverlay');
+  ov.classList.remove('hidden'); ov.style.display = 'flex';
+  // 開いている間は15秒ごとに新着を取得
+  if(gchatPollTimer) clearInterval(gchatPollTimer);
+  gchatPollTimer = setInterval(async function(){
+    if(gchatVenueId === null) return;
+    const r = await dbGetGroupMessages(gchatVenueId);
+    if(r){ gchatMsgCache[gchatVenueId] = r; renderGroupMessages(); }
+  }, 15000);
+}
+
+function closeGroupChat(){
+  const ov = document.getElementById('gchatOverlay');
+  ov.classList.add('hidden'); ov.style.display = 'none';
+  gchatVenueId = null;
+  if(gchatPollTimer){ clearInterval(gchatPollTimer); gchatPollTimer = null; }
+}
+
+function renderGroupMessages(){
+  const box = document.getElementById('gchatMessages');
+  const msgs = gchatMsgCache[gchatVenueId] || [];
+  const meId = String(currentUser ? currentUser.dbId : '');
+  box.innerHTML = msgs.length ? msgs.map(function(m){
+    const mine = String(m.staff_id) === meId;
+    const d = new Date(new Date(m.created_at).getTime() + 9*3600*1000);
+    const time = `${d.getUTCMonth()+1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+    return `<div style="margin-bottom:10px;display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};">
+      ${mine?'':`<div style="font-size:10px;color:var(--text-2);margin-bottom:2px;">${escHtml(m.sender_name||'')}</div>`}
+      <div style="max-width:80%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.5;background:${mine?'var(--text)':'var(--bg-2)'};color:${mine?'#fff':'var(--text)'};white-space:pre-wrap;word-break:break-word;">${escHtml(m.content)}</div>
+      <div style="font-size:9px;color:var(--text-3);margin-top:2px;">${time}</div>
+    </div>`;
+  }).join('') : '<div class="empty" style="padding:30px;">まだメッセージはありません</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendGroupMessage(){
+  const input = document.getElementById('gchatInput');
+  const content = (input.value || '').trim();
+  if(!content || gchatVenueId === null || !currentUser) return;
+  input.value = '';
+  const senderName = currentUser.displayName || currentUser.name || 'スタッフ';
+  const res = await supaFetch('group_messages', {
+    method: 'POST',
+    prefer: 'return=representation',
+    body: JSON.stringify({ venue_id: gchatVenueId, staff_id: currentUser.dbId, sender_name: senderName, content: content })
+  });
+  if(res && res[0]){
+    if(!gchatMsgCache[gchatVenueId]) gchatMsgCache[gchatVenueId] = [];
+    gchatMsgCache[gchatVenueId].push(res[0]);
+    renderGroupMessages();
+    // 参加者（自分以外）へ通知
+    const v = venues.find(x=>x.id===gchatVenueId);
+    const targets = groupParticipants(gchatVenueId).filter(function(id){ return id !== String(currentUser.dbId); });
+    if(v && targets.length){
+      sendPush(`${v.name}グループ`, `${senderName}: ${truncMsg(content)}`, targets, 'chat');
+    }
+  } else {
+    showNotif('送信に失敗しました');
+  }
 }
 
 // ===== バイトカレンダー =====
@@ -2108,6 +2201,7 @@ async function renderContact(){
         </div>
         ${unnotified > 0 ? `<span class="status-badge status-open" style="font-size:11px;">入り未送信 ${unnotified}人</span>` : ''}
         ${unread > 0 ? `<span class="status-badge status-open" style="font-size:11px;">返信未確認 ${unread}件</span>` : ''}
+        <button class="btn btn-sm btn-outline" style="flex-shrink:0;" onclick="openGroupChat(${v.id})">👥 グループ</button>
       </div>
       <div style="padding:0 18px;">${staffRows}</div>
     </div>`;
@@ -3358,6 +3452,24 @@ initApp();
   </div>
 </div>
 
+<!-- 現場グループチャット -->
+<div class="chat-overlay hidden" id="gchatOverlay" onclick="if(event.target===this)closeGroupChat()" style="display:none;">
+  <div class="chat-modal">
+    <div class="chat-header">
+      <div>
+        <div class="chat-title" id="gchatTitle"></div>
+        <div class="chat-sub" id="gchatSub"></div>
+      </div>
+      <button class="modal-x" onclick="closeGroupChat()">✕</button>
+    </div>
+    <div class="chat-messages" id="gchatMessages"></div>
+    <div class="chat-input-area">
+      <input class="chat-input" id="gchatInput" autocomplete="off" placeholder="メッセージを入力..." onkeypress="if(event.key==='Enter')sendGroupMessage()">
+      <button class="chat-send-btn" onclick="sendGroupMessage()">送信</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" class="login-screen">
@@ -3381,7 +3493,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v16</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v17</div>
 
   </div>
 </div>
