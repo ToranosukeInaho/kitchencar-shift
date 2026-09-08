@@ -887,7 +887,7 @@ function venueCardHTML(v, editable=true){
         ${editable?`
         <button class="btn btn-sm btn-outline" onclick="openApplicantPanel(${v.id})">申請者</button>
         <button class="btn btn-sm btn-outline" onclick="openVenueModal(${v.id})">編集</button>
-        <button class="btn btn-sm btn-outline" onclick="openIncModal(${v.id})">増員</button>`:''}
+        <button class="btn btn-sm btn-outline" onclick="openIncModal(${v.id})">増員</button><button class="btn btn-sm btn-outline" onclick="openManualAdd(${v.id})">手動追加</button>`:''}
       </div>
     </div>
   </div>`;
@@ -1202,6 +1202,52 @@ async function cancelApprove(id){
   showNotif(`${a.staffName}さんの承認を取り消しました。関連する申請を申請中に戻しました。`);
 }
 
+let manualAddVenueId = null;
+function openManualAdd(vid){
+  const v = venues.find(x=>x.id===vid); if(!v) return;
+  manualAddVenueId = vid;
+  document.getElementById('manualAddVenueInfo').textContent = `${v.name}（${fmtDate(v.date)} ${v.start}〜${v.end}）　${v.confirmed}/${v.need}人`;
+  const taken = applicants.filter(a=>a.venueId===vid && (a.status==='approved'||a.status==='pending')).map(a=>String(a.staffId));
+  const opts = staffList
+    .filter(st=>st.role==='baito' && taken.indexOf(String(st.id))===-1)
+    .map(st=>`<option value="${st.id}">${st.name}${st.regular?'（レギュラー）':''}</option>`).join('');
+  document.getElementById('manualStaffSelect').innerHTML = opts || '<option value="">追加できるスタッフがいません</option>';
+  openModal('manualAddModal');
+}
+
+async function submitManualAdd(){
+  const sel = document.getElementById('manualStaffSelect');
+  const staffId = sel.value;
+  if(!staffId){ showNotif('スタッフを選択してください'); return; }
+  const v = venues.find(x=>x.id===manualAddVenueId); if(!v) return;
+  const st = staffList.find(x=>String(x.id)===String(staffId)); if(!st) return;
+  if(v.confirmed >= v.need){ showNotif('既に定員に達しています。増員してから追加してください。'); return; }
+  closeModal('manualAddModal');
+
+  const now = new Date();
+  const timeStr = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const res = await dbInsertApplicant({
+    staff_id: st.id, venue_id: v.id, status: 'approved',
+    available_start: v.start, available_end: v.end, baito_memo: '（手動追加）'
+  });
+  if(res && res[0]){
+    applicants.push({
+      id:res[0].id, staffName:st.name, staffId:st.id, venueId:v.id, venueName:v.name,
+      carIdx:v.carIdx, status:'approved', available_start:v.start, available_end:v.end,
+      baito_memo:'（手動追加）', arrival_time:'', arrival_memo:'', arrival_notified:false,
+      admin_message:'', time:timeStr
+    });
+    v.confirmed = Math.min(v.need, v.confirmed+1);
+    await dbUpdateVenue(v.id, {confirmed_count:v.confirmed});
+    sendPush('シフトに追加されました', `「${v.name}」（${fmtDate(v.date)} ${v.start}〜${v.end}）に追加されました`, [String(st.id)], 'shift');
+    showNotif(`${st.name}さんを${v.name}の確定枠に追加しました`);
+    renderAll();
+    renderBaito();
+  } else {
+    showNotif('追加に失敗しました');
+  }
+}
+
 async function reject(id){
   const a=applicants.find(x=>x.id===id); if(!a) return;
   await dbUpdateApplicant(id,{status:'rejected'});
@@ -1389,6 +1435,7 @@ function showDD(ds){
         <button class="btn btn-sm btn-outline" onclick="openApplicantPanel(${v.id})">申請者</button>
         <button class="btn btn-sm btn-outline" onclick="openVenueModal(${v.id})">編集</button>
         <button class="btn btn-sm btn-outline" onclick="openIncModal(${v.id})">増員</button>
+        <button class="btn btn-sm btn-outline" onclick="openManualAdd(${v.id})">手動追加</button>
       </div>
     </div>`).join('');
 
@@ -1458,7 +1505,8 @@ async function renderBaito(){
   const todayS3 = todayStr();
   const myApprovedAll = currentUser ? 
     applicants.filter(a => a.staffId === currentUser.dbId && a.status === 'approved') : [];
-  const myApproved = myApprovedAll.filter(a=>{const v=venues.find(vv=>vv.id===a.venueId); return v && v.date>=todayS3;});
+  const myApproved = myApprovedAll.filter(a=>{const v=venues.find(vv=>vv.id===a.venueId); return v && v.date>=todayS3;})
+    .sort((x,y)=>{const vx=venues.find(v=>v.id===x.venueId),vy=venues.find(v=>v.id===y.venueId);return (vx?vx.date:'').localeCompare(vy?vy.date:'');});
   const myPast = myApprovedAll.filter(a=>{const v=venues.find(vv=>vv.id===a.venueId); return v && v.date<todayS3;});
   // バイト側のチャット未読チェック
   myApprovedAll.forEach(async a=>{
@@ -1495,6 +1543,7 @@ async function renderBaito(){
     const timeStr = a.arrival_notified && a.arrival_time ? `${a.arrival_time}〜${v.end}` : `${v.start}〜${v.end}`;
     const pendingStr = (!a.arrival_notified) ? ` <span style="font-size:10px;color:var(--warn);">（入り時間未定）</span>` : '';
     const memoStr = a.arrival_notified && a.arrival_memo ? `<div style="font-size:11px;color:var(--text-2);margin-top:2px;">📍 ${a.arrival_memo}</div>` : '';
+    const myMemoStr = a.baito_memo ? `<div style="font-size:11px;color:var(--accent);margin-top:2px;">💬 あなたのメモ: ${a.baito_memo}</div>` : '';
     const arrivalDisplay = timeStr + pendingStr;
     return `<div class="ms-row">
       <div class="ms-date">${d.getMonth()+1}/${d.getDate()}</div>
@@ -1502,6 +1551,7 @@ async function renderBaito(){
         <div class="ms-place">${v.name}</div>
         <div class="ms-time">${arrivalDisplay}　${carName(v.carIdx)}</div>
         ${memoStr}
+        ${myMemoStr}
         <button onclick="openBaitoChat(${a.id})" style="width:100%;margin-top:6px;padding:8px;border-radius:var(--radius-sm);border:1px solid ${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open)':'var(--border-strong)'};background:${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open-light)':'transparent'};font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;color:${messages[a.id]?.some(m=>m.sender==='admin'&&!m.is_read)?'var(--open)':'var(--text)'};display:flex;align-items:center;justify-content:center;gap:6px;">
           💬 管理者と連絡する${(()=>{const cnt=(messages[a.id]||[]).filter(m=>m.sender==='admin'&&!m.is_read).length;return cnt>0?` <span style="background:var(--open);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;">${cnt}件未読</span>`:''})()}
         </button>
@@ -1557,7 +1607,9 @@ async function submitApply(){
   if(currentUser){
     const now = new Date();
     const timeStr = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const baitoMemo = document.getElementById('baitoMemoInput').value.trim();
+    const baitoMemoEl = document.getElementById('baitoMemoInput');
+    const baitoMemo = baitoMemoEl.value.trim();
+    baitoMemoEl.value = '';  // 送信後クリア（次回に繰り越さない）
     const res = await dbInsertApplicant({
       staff_id: currentUser.dbId,
       venue_id: vid,
@@ -3016,14 +3068,32 @@ async function ensureHandoffToken() {
   if (!isIOS() || isStandalone() || !currentUser || !currentUser.dbId) return;
   try {
     let lt = localStorage.getItem('kcs_lt');
-    if (!lt || !/^\d{6}$/.test(lt)) {
-      lt = String(Math.floor(100000 + Math.random() * 900000));
-      const ins = await supaFetch('login_tokens', {
-        method: 'POST',
-        prefer: 'return=representation',
-        body: JSON.stringify({ token: lt, staff_id: currentUser.dbId })
-      });
-      if (!ins) return;
+    // 保存済みコードがDB上で有効か確認（削除済み/期限切れなら作り直す）
+    if (lt && /^\d{6}$/.test(lt)) {
+      let alive = false;
+      try {
+        const chk = await supaFetch('login_tokens?token=eq.' + encodeURIComponent(lt));
+        if (chk && chk[0] && String(chk[0].staff_id) === String(currentUser.dbId)) {
+          const age = Date.now() - new Date(chk[0].created_at).getTime();
+          if (age <= 7 * 24 * 3600 * 1000) alive = true;
+        }
+      } catch (e) { alive = false; }
+      if (!alive) { lt = null; try { localStorage.removeItem('kcs_lt'); } catch (e) {} }
+    } else {
+      lt = null;
+    }
+    if (!lt) {
+      // 未使用の6桁コードを発行（重複時は数回リトライ）
+      for (let i = 0; i < 5 && !lt; i++) {
+        const cand = String(Math.floor(100000 + Math.random() * 900000));
+        const ins = await supaFetch('login_tokens', {
+          method: 'POST',
+          prefer: 'return=representation',
+          body: JSON.stringify({ token: cand, staff_id: currentUser.dbId })
+        });
+        if (ins && ins[0]) { lt = cand; }
+      }
+      if (!lt) return;
       localStorage.setItem('kcs_lt', lt);
     }
     // URLにはトークンを付けない（共有時の漏えい防止。引き継ぎはコード入力のみ）
@@ -3493,7 +3563,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v17</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v19</div>
 
   </div>
 </div>
