@@ -3438,19 +3438,19 @@ initApp();
 
 <!-- シフト申請モーダル -->
 <div class="overlay hidden" id="manualAddModal" onclick="closeOut(event,'manualAddModal')">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-head">
-      <div class="modal-title">スタッフを手動で追加</div>
-      <button class="modal-x" onclick="closeModal('manualAddModal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;" id="manualAddVenueInfo"></div>
+  <div class="modal">
+    <div class="modal-hd"><div class="modal-title">スタッフを手動で追加</div><button class="modal-x" onclick="closeModal('manualAddModal')">✕</button></div>
+    <div class="modal-bd">
+      <div class="inc-box">
+        <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;">対象現場</div>
+        <div style="font-weight:700;font-size:13px;" id="manualAddVenueInfo"></div>
+      </div>
       <div class="fg"><label class="fl">スタッフを選択</label>
         <select class="fi" id="manualStaffSelect"></select>
       </div>
-      <div style="font-size:11px;color:var(--text-3);">選んだスタッフを確定枠に直接追加します（応募なしで確定・本人に通知が届きます）。</div>
+      <div style="font-size:12px;color:var(--text-2);background:var(--accent-light);padding:10px;border-radius:var(--radius-sm);">◎ 応募なしで確定枠に追加され、本人に通知が届きます</div>
     </div>
-    <div class="modal-foot">
+    <div class="modal-ft">
       <button class="btn btn-outline" onclick="closeModal('manualAddModal')">キャンセル</button>
       <button class="btn btn-primary" onclick="submitManualAdd()">確定枠に追加</button>
     </div>
@@ -3583,7 +3583,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v20</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v21</div>
 
   </div>
 </div>
