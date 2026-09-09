@@ -501,7 +501,6 @@ input::-webkit-date-and-time-value{text-align:left;}
     <div id="page-staff" class="hidden">
       <div class="topbar">
         <div><div class="page-title">スタッフ管理</div><div class="page-sub" id="staffSub"></div></div>
-        <div class="topbar-right"><button class="btn btn-primary" onclick="openStaffModal(null)">＋ スタッフ追加</button></div>
       </div>
       <div class="content">
         <div class="filters">
@@ -1209,7 +1208,8 @@ function openManualAdd(vid){
   document.getElementById('manualAddVenueInfo').textContent = `${v.name}（${fmtDate(v.date)} ${v.start}〜${v.end}）　${v.confirmed}/${v.need}人`;
   const taken = applicants.filter(a=>a.venueId===vid && (a.status==='approved'||a.status==='pending')).map(a=>String(a.staffId));
   const opts = staffList
-    .filter(st=>st.role==='baito' && taken.indexOf(String(st.id))===-1)
+    .filter(st=>(st.role==='baito'||st.role==='master') && taken.indexOf(String(st.id))===-1)
+    .sort((a,b)=>(a.furigana||a.name||'').localeCompare(b.furigana||b.name||'','ja'))
     .map(st=>`<option value="${st.id}">${st.name}${st.regular?'（レギュラー）':''}</option>`).join('');
   document.getElementById('manualStaffSelect').innerHTML = opts || '<option value="">追加できるスタッフがいません</option>';
   openModal('manualAddModal');
@@ -3583,7 +3583,7 @@ initApp();
       <div id="codeLoginMsg" style="font-size:11px;color:#B4443C;margin-top:6px;display:none;"></div>
     </div>
     <div id="debugUrl" style="display:none;margin-top:12px;font-size:9px;color:var(--text-3);word-break:break-all;"></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v21</div>
+    <div style="margin-top:10px;font-size:9px;color:var(--text-3);text-align:center;">v22</div>
 
   </div>
 </div>
